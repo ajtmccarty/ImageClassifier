@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from cli_parser import create_training_parser
 
 
@@ -16,4 +18,3 @@ if __name__ == "__main__":
     kwargs = vars(parser.parse_args())
     print(kwargs)
     img_trainer = ImageTrainer(**kwargs)
-    

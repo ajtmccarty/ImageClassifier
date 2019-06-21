@@ -5,6 +5,7 @@ from typing import List
 from torch.nn import Module as NNModule
 import torchvision.models
 
+
 class ArgTypes:
     """Class to organize different types of arguments"""
     
@@ -20,7 +21,7 @@ class ArgTypes:
     def torchvision_model(in_string: str) -> NNModule:
         """Verify that in_string is the name of a model in torchvision.models"""
         if hasattr(torchvision.models, in_string):
-            return in_string
+            return getattr(torchvision.models, in_string)
         raise ArgumentTypeError(f"{in_string} is not a torchvision model")
 
     @staticmethod
