@@ -63,6 +63,12 @@ def create_training_parser():
         default=10,
         help="Number of epochs to train the model for"
     )
+    parser.add_argument(
+        "-g",
+        "--gpu",
+        action="store_true",
+        help="Whether to use a GPU. Will only work if PyTorch has access to a GPU"
+    )
     return parser
 
 if __name__ == "__main__":
