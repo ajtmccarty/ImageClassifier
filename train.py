@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from time import time
 from typing import Dict, List, Tuple
@@ -84,8 +85,8 @@ class ImageTrainer:
         ]
         self.classifier = self.build_classifier(layer_sizes)
 
-        last_layer_name: str = get_last_child_module(self.arch)[0]
-        setattr(self.arch, last_layer_name, self.classifier)
+        self.last_layer_name: str = get_last_child_module(self.arch)[0]
+        setattr(self.arch, self.last_layer_name, self.classifier)
 
     @staticmethod
     def initialize_pretrained_model(model_name: str) -> NNModule:
@@ -133,6 +134,29 @@ class ImageTrainer:
         classifier.dropout = dropout
         return classifier
 
+    @staticmethod
+    def load_model(chkpnt_path: Path, dropout: float = 0.3):
+        # load it to the CPU by default b/c that always exists
+        data: Dict = torch.load(str(chkpnt_path), map_location="cpu")
+        name: str = data["name"]
+        last_layer_name: str = data["last_layer_name"]
+        model = ImageTrainer.initialize_pretrained_model(name)
+
+        dropout = float(data["dropout"]) if "dropout" in data else dropout
+        sizes: List[int] = []
+        first: bool = True
+        for k, v in data["model_state"].items():
+            if re.match(r"{}\.[0-9]*\.weight".format(last_layer_name), k):
+                if first:
+                    first = False
+                    sizes.append(v.shape[1])
+                sizes.append(v.shape[0])
+        classifier: NNModule = ImageTrainer.build_classifier(sizes, dropout)
+        setattr(model, last_layer_name, classifier)
+        model.load_state_dict(data["model_state"])
+        model.class_to_idx = data["class_to_idx"]
+        return model
+
     def save_model(self) -> Path:
         """Save the model in the specified directory"""
         checkpoint = {
@@ -140,6 +164,7 @@ class ImageTrainer:
             "name": self.arch.name,
             "class_to_idx": self.class_to_idx,
             "model_state": self.arch.state_dict(),
+            "last_layer_name": self.last_layer_name,
         }
         timestamp = str(int(time()))
         name: str = self.arch.name
@@ -262,7 +287,8 @@ class ImageTrainer:
                 )
 
     def test_model(self):
-        print("Starting evaluation on test data...")
+        print("\nStarting evaluation on test data...")
+        print("Batch progress", end="...")
         self.arch.to(self.device)
         self.arch.eval()
         accuracy: float = 0.0
@@ -292,3 +318,5 @@ if __name__ == "__main__":
     img_trainer.test_model()
     chkpnt: Path = img_trainer.save_model()
     print(f"Saved checkpoint to {chkpnt}")
+    model = ImageTrainer.load_model(chkpnt)
+    print(model)
