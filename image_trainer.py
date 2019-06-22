@@ -3,7 +3,9 @@ from pathlib import Path
 from time import time
 from typing import Dict, List
 
+import numpy as np
 import torch
+from PIL import Image
 from torch.optim import Adam, Optimizer
 from torch.nn import (
     Dropout,
@@ -19,8 +21,31 @@ from torchvision import transforms, models as torch_models
 from torchvision.datasets import DatasetFolder, ImageFolder
 
 from exceptions import ImageTrainerError
-from utils import get_device, get_last_child_module
+from utils import get_device, get_last_child_module, invert_dict, parse_json_file
 from workspace_utils import keep_awake
+
+
+def load_model(chkpnt_path: Path, dropout: float = 0.3):
+    # load it to the CPU by default b/c that always exists
+    data: Dict = torch.load(str(chkpnt_path), map_location="cpu")
+    name: str = data["name"]
+    last_layer_name: str = data["last_layer_name"]
+    model = ImageTrainer.initialize_pretrained_model(name)
+
+    dropout = float(data["dropout"]) if "dropout" in data else dropout
+    sizes: List[int] = []
+    first: bool = True
+    for k, v in data["model_state"].items():
+        if re.match(r"{}\.[0-9]*\.weight".format(last_layer_name), k):
+            if first:
+                first = False
+                sizes.append(v.shape[1])
+            sizes.append(v.shape[0])
+    classifier: NNModule = ImageTrainer.build_classifier(sizes, dropout)
+    setattr(model, last_layer_name, classifier)
+    model.load_state_dict(data["model_state"])
+    model.class_to_idx = data["class_to_idx"]
+    return model
 
 
 class ImageTrainer:
@@ -110,29 +135,6 @@ class ImageTrainer:
         classifier: Sequential = Sequential(*args)
         classifier.dropout = dropout
         return classifier
-
-    @staticmethod
-    def load_model(chkpnt_path: Path, dropout: float = 0.3):
-        # load it to the CPU by default b/c that always exists
-        data: Dict = torch.load(str(chkpnt_path), map_location="cpu")
-        name: str = data["name"]
-        last_layer_name: str = data["last_layer_name"]
-        model = ImageTrainer.initialize_pretrained_model(name)
-
-        dropout = float(data["dropout"]) if "dropout" in data else dropout
-        sizes: List[int] = []
-        first: bool = True
-        for k, v in data["model_state"].items():
-            if re.match(r"{}\.[0-9]*\.weight".format(last_layer_name), k):
-                if first:
-                    first = False
-                    sizes.append(v.shape[1])
-                sizes.append(v.shape[0])
-        classifier: NNModule = ImageTrainer.build_classifier(sizes, dropout)
-        setattr(model, last_layer_name, classifier)
-        model.load_state_dict(data["model_state"])
-        model.class_to_idx = data["class_to_idx"]
-        return model
 
     def save_model(self) -> Path:
         """Save the model in the specified directory"""
@@ -285,3 +287,63 @@ class ImageTrainer:
                 accuracy += batch_acc
 
         print(f"\nTest Accuracy: {accuracy/len(self.dataloaders['test'])}")
+
+
+class ImagePredictor:
+    def __init__(
+        self, input: Path, checkpoint: Path, top_k: int, category_names: Path, gpu: bool
+    ):
+        self.image_path: Path = input
+        self.checkpoint_path: Path = checkpoint
+        self.top_k: int = top_k
+        self.cat_name_map: Dict = parse_json_file(category_names)
+        self.device = get_device(gpu)
+        self.model = load_model(self.checkpoint_path)
+
+    @staticmethod
+    def process_image(image: Image) -> np.array:
+        """Scales, crops, and normalizes a PIL image for a PyTorch model, returns an Numpy array"""
+        image.thumbnail((256, 256))
+
+        # center 224 x 224 image
+        width, height = image.size
+        left = (width - 224) / 2
+        top = (height - 224) / 2
+        right = (width + 224) / 2
+        bottom = (height + 224) / 2
+        image = image.crop((left, top, right, bottom))
+        # scale color channels for 0-255 to 0-1
+        np_array = np.array(image)
+        np_array = np_array / 255.0
+        # normalize the image with the special image color channel values
+        np_array = np_array - [0.485, 0.456, 0.406]
+        np_array = np_array / [0.229, 0.224, 0.225]
+        return torch.from_numpy(np_array.transpose((2, 0, 1)))
+
+    def predict_image(self, image_path: Path, model: torch.nn.Module, topk: int = 5):
+        """Predict the class (or classes) of an image using a trained deep learning model."""
+        model.to(self.device)
+        image: Image = Image.open(image_path)
+        with torch.no_grad():
+            model.eval()
+            image_tensor: np.array = self.process_image(image)
+            image_tensor.to(self.device)
+        image_tensor: torch.Tensor = image_tensor.view(1, *image_tensor.shape)
+        image_tensor = image_tensor.type(torch.FloatTensor)
+        log_ps: torch.Tensor = model.forward(image_tensor)
+        ps: torch.Tensor = torch.exp(log_ps)
+        probs, classes = ps.topk(topk, dim=1)
+        classes = [c.item() for c in classes.view(-1)]
+        probs = [p.item() for p in probs.view(-1)]
+        return probs, classes
+
+    def handle_prediction(self):
+        probs, classes = self.predict_image(self.image_path, self.model)
+
+        idx_to_class: Dict = invert_dict(self.model.class_to_idx)
+        classes = [idx_to_class[c] for c in classes]
+        if self.cat_name_map:
+            classes = [self.cat_name_map[c] for c in classes]
+        print(f"Prediction for top {self.top_k} classes")
+        for p, c in zip(probs, classes):
+            print(f"\t{c}: {p}")
