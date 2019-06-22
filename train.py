@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, List
 
+import torch
 from torch.nn import Module as NNModule
 from torch.utils.data import DataLoader
 from torchvision import transforms, models as torch_models
@@ -35,7 +36,17 @@ class ImageTrainer:
         self.learning_rate: float = learning_rate
         self.hidden_units: List[int] = hidden_units
         self.epochs: int = epochs
-        self.gpu: bool = gpu
+
+        # TODO: this verification should probably be in the cli_parser
+        if gpu:
+            if torch.cuda.is_available():
+                self.gpu: bool = True
+                self.device: torch.device = torch.device("cuda")
+            else:
+                raise ImageTrainerInitError(f"No GPU available. Run without -g/--gpu argument")
+        else:
+            self.gpu = False
+            self.device = torch.device("cpu")
 
         self.dataloaders: Dict[str, DataLoader] = self.generate_dataloaders(self.data_dir)
 
@@ -107,3 +118,4 @@ if __name__ == "__main__":
     img_trainer = ImageTrainer(**kwargs)
     print(img_trainer.dataloaders)
     print(img_trainer.arch)
+    print(img_trainer.device)
