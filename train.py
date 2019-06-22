@@ -65,7 +65,7 @@ class ImageTrainer:
         # validate image dirs
         for name, p in image_dirs.items():
             if not (p.exists() and p.is_dir()):
-                raise ImageTrainerInitError(f"Path {p} for {name} image directory is not a valid directory")
+                raise ImageTrainerError(f"Path {p} for {name} image directory is not a valid directory")
 
         the_transforms: Dict[str, transforms.Compose] = {
             "train": transforms.Compose([
@@ -109,6 +109,25 @@ class ImageTrainer:
             p.requires_grad = False
         vision_model.name = model_name
         return vision_model
+
+    torch_models.resnet18()
+
+    @staticmethod
+    def get_classifier_input_size(model: NNModule):
+        """The torchvision models either end with a classifier or an "fc" layer"""
+        # if the classifier is just a single layer
+        if hasattr(model, "fc"):
+            return model.fc.in_features
+        if hasattr(model.classifier, "in_features"):
+            return model.classifier.in_features
+        for layer in model.classifier:
+            try:
+                return layer.in_features
+            except AttributeError:
+                pass
+        raise ImageTrainerError(f"Cannot determine classifier input width. Model "
+                                f"must have a classifier with in_features attribute "
+                                f"or an 'fc' layer with an in_features attribute")
 
 
 if __name__ == "__main__":

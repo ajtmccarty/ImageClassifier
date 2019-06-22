@@ -1,3 +1,4 @@
+import re
 from argparse import ArgumentParser, ArgumentTypeError
 from pathlib import Path
 from typing import List
@@ -18,7 +19,9 @@ class ArgTypes:
 
     @staticmethod
     def torchvision_model_name(in_string: str) -> str:
-        """Verify that in_string is the name of a model in torchvision.models"""
+        """Verify that in_string is the name of a supported model in torchvision.models"""
+        if not re.search("^dense|alex|res|vgg", in_string):
+            raise ArgumentTypeError(f"This tool only supports DenseNet, ResNet, VGG, or AlexNet models")
         if hasattr(torchvision.models, in_string):
             return in_string
         raise ArgumentTypeError(f"{in_string} is not a torchvision model")
@@ -61,7 +64,8 @@ def create_training_parser():
         type=ArgTypes.torchvision_model_name,
         default="vgg16",
         help="Name of pretrained neural net to use. Must be one of the models in PyTorch's torchvision.models("
-             "https://pytorch.org/docs/0.4.0/torchvision/models.html), such as vgg16, densenet121, etc." 
+             "https://pytorch.org/docs/0.4.0/torchvision/models.html) and must be one of the AlexNet, DenseNet, "
+             "ResNet, or VGG models"
     )
     parser.add_argument(
         "-lr",
