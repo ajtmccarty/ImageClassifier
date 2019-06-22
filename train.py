@@ -2,14 +2,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import torch
-from torch.nn import (
-    Dropout,
-    Linear,
-    LogSoftmax,
-    Module as NNModule,
-    ReLU,
-    Sequential
-)
+from torch.nn import Dropout, Linear, LogSoftmax, Module as NNModule, ReLU, Sequential
 from torch.utils.data import DataLoader
 from torchvision import transforms, models as torch_models
 from torchvision.datasets import DatasetFolder, ImageFolder
@@ -32,14 +25,14 @@ def get_last_child_module(model: NNModule) -> Tuple[str, NNModule]:
 
 class ImageTrainer:
     def __init__(
-            self,
-            data_dir: Path,
-            save_dir: Path,
-            arch: str,
-            learning_rate: float,
-            hidden_units: List[int],
-            epochs: int,
-            gpu: bool
+        self,
+        data_dir: Path,
+        save_dir: Path,
+        arch: str,
+        learning_rate: float,
+        hidden_units: List[int],
+        epochs: int,
+        gpu: bool,
     ):
         # initial instance vars
         self.data_dir: Path = data_dir
@@ -54,12 +47,16 @@ class ImageTrainer:
                 self.gpu: bool = True
                 self.device: torch.device = torch.device("cuda")
             else:
-                raise ImageTrainerInitError(f"No GPU available. Run without -g/--gpu argument")
+                raise ImageTrainerInitError(
+                    f"No GPU available. Run without -g/--gpu argument"
+                )
         else:
             self.gpu = False
             self.device = torch.device("cpu")
 
-        self.dataloaders: Dict[str, DataLoader] = self.generate_dataloaders(self.data_dir)
+        self.dataloaders: Dict[str, DataLoader] = self.generate_dataloaders(
+            self.data_dir
+        )
 
         # download the model last because it takes a long time we want to be sure the rest
         # of the initialization was successful so users aren't waiting around for errors
@@ -67,46 +64,58 @@ class ImageTrainer:
 
         classifier_in_nodes: int = self.get_classifier_input_size(self.arch)
         classifier_out_nodes: int = self.get_num_cats(Path(self.data_dir, "test"))
-        layer_sizes: List[int] = [classifier_in_nodes] + self.hidden_units + [classifier_out_nodes]
+        layer_sizes: List[int] = [classifier_in_nodes] + self.hidden_units + [
+            classifier_out_nodes
+        ]
         self.classifier = self.build_classifier(layer_sizes)
 
         last_layer_name: str = get_last_child_module(self.arch)[0]
         setattr(self.arch, last_layer_name, self.classifier)
 
     @staticmethod
-    def generate_dataloaders(data_dir: Path, batch_size: int = 32) -> Dict[str, DataLoader]:
+    def generate_dataloaders(
+        data_dir: Path, batch_size: int = 32
+    ) -> Dict[str, DataLoader]:
         """Initialize `dataloaders` instance attr"""
         image_dirs: Dict[str, Path] = {
-            "train": Path(data_dir, 'train').absolute(),
-            "validation": Path(data_dir, 'valid').absolute(),
-            "test":  Path(data_dir, 'test').absolute()
+            "train": Path(data_dir, "train").absolute(),
+            "validation": Path(data_dir, "valid").absolute(),
+            "test": Path(data_dir, "test").absolute(),
         }
         # validate image dirs
         for name, p in image_dirs.items():
             if not (p.exists() and p.is_dir()):
-                raise ImageTrainerError(f"Path {p} for {name} image directory is not a valid directory")
+                raise ImageTrainerError(
+                    f"Path {p} for {name} image directory is not a valid directory"
+                )
 
         the_transforms: Dict[str, transforms.Compose] = {
-            "train": transforms.Compose([
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation(45),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ]),
+            "train": transforms.Compose(
+                [
+                    transforms.RandomResizedCrop(224),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.RandomRotation(45),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                ]
+            ),
             # validation is same as test for now
-            "validation": transforms.Compose([
-                transforms.Resize(255),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ]),
-            "test": transforms.Compose([
-                transforms.Resize(255),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ]),
+            "validation": transforms.Compose(
+                [
+                    transforms.Resize(255),
+                    transforms.CenterCrop(224),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                ]
+            ),
+            "test": transforms.Compose(
+                [
+                    transforms.Resize(255),
+                    transforms.CenterCrop(224),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                ]
+            ),
         }
 
         image_datasets: Dict[str, DatasetFolder] = {
@@ -141,9 +150,11 @@ class ImageTrainer:
                 return module.in_features
             except AttributeError:
                 pass
-        raise ImageTrainerError(f"Cannot determine classifier input width. Model "
-                                f"must have a classifier with in_features attribute "
-                                f"or an 'fc' layer with an in_features attribute")
+        raise ImageTrainerError(
+            f"Cannot determine classifier input width. Model "
+            f"must have a classifier with in_features attribute "
+            f"or an 'fc' layer with an in_features attribute"
+        )
 
     @staticmethod
     def get_num_cats(image_dir: Path) -> int:
@@ -157,15 +168,8 @@ class ImageTrainer:
         for i in range(len(layers) - 2):
             from_size = layers[i]
             to_size = layers[i + 1]
-            args.extend([
-                Linear(from_size, to_size),
-                ReLU(),
-                Dropout(dropout)
-            ])
-        args.extend([
-            Linear(layers[-2], layers[-1]),
-            LogSoftmax(dim=1)
-        ])
+            args.extend([Linear(from_size, to_size), ReLU(), Dropout(dropout)])
+        args.extend([Linear(layers[-2], layers[-1]), LogSoftmax(dim=1)])
         classifier: Sequential = Sequential(*args)
         classifier.dropout = dropout
         return classifier
