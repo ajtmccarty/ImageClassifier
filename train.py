@@ -1,9 +1,18 @@
 from pathlib import Path
+from time import time
 from typing import Dict, List, Tuple
 
 import torch
 from torch.optim import Adam, Optimizer
-from torch.nn import Dropout, Linear, LogSoftmax, Module as NNModule, NLLLoss, ReLU, Sequential
+from torch.nn import (
+    Dropout,
+    Linear,
+    LogSoftmax,
+    Module as NNModule,
+    NLLLoss,
+    ReLU,
+    Sequential,
+)
 from torch.utils.data import DataLoader
 from torchvision import transforms, models as torch_models
 from torchvision.datasets import DatasetFolder, ImageFolder
@@ -58,9 +67,9 @@ class ImageTrainer:
             self.gpu = False
             self.device = torch.device("cpu")
 
-        self.dataloaders: Dict[str, DataLoader] = self.generate_dataloaders(
-            self.data_dir
-        )
+        self.class_to_idx: Dict[str, int] = dict()
+        self.dataloaders: Dict[str, DataLoader] = dict()
+        self.generate_dataloaders(self.data_dir)
 
         # download the model last because it takes a long time we want to be sure the rest
         # of the initialization was successful so users aren't waiting around for errors
@@ -71,68 +80,12 @@ class ImageTrainer:
         layer_sizes: List[int] = [
             classifier_in_nodes,
             *self.hidden_units,
-            classifier_out_nodes
+            classifier_out_nodes,
         ]
         self.classifier = self.build_classifier(layer_sizes)
 
         last_layer_name: str = get_last_child_module(self.arch)[0]
         setattr(self.arch, last_layer_name, self.classifier)
-
-    @staticmethod
-    def generate_dataloaders(
-        data_dir: Path, batch_size: int = 32
-    ) -> Dict[str, DataLoader]:
-        """Initialize `dataloaders` instance attr"""
-        image_dirs: Dict[str, Path] = {
-            "train": Path(data_dir, "train").absolute(),
-            "validation": Path(data_dir, "valid").absolute(),
-            "test": Path(data_dir, "test").absolute(),
-        }
-        # validate image dirs
-        for name, p in image_dirs.items():
-            if not (p.exists() and p.is_dir()):
-                raise ImageTrainerError(
-                    f"Path {p} for {name} image directory is not a valid directory"
-                )
-
-        the_transforms: Dict[str, transforms.Compose] = {
-            "train": transforms.Compose(
-                [
-                    transforms.RandomResizedCrop(224),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.RandomRotation(45),
-                    transforms.ToTensor(),
-                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-                ]
-            ),
-            # validation is same as test for now
-            "validation": transforms.Compose(
-                [
-                    transforms.Resize(255),
-                    transforms.CenterCrop(224),
-                    transforms.ToTensor(),
-                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-                ]
-            ),
-            "test": transforms.Compose(
-                [
-                    transforms.Resize(255),
-                    transforms.CenterCrop(224),
-                    transforms.ToTensor(),
-                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-                ]
-            ),
-        }
-
-        image_datasets: Dict[str, DatasetFolder] = {
-            name: ImageFolder(str(image_dirs[name]), transform=the_transforms[name])
-            for name in image_dirs.keys()
-        }
-
-        return {
-            name: DataLoader(image_datasets[name], batch_size=batch_size, shuffle=True)
-            for name in ["train", "validation", "test"]
-        }
 
     @staticmethod
     def initialize_pretrained_model(model_name: str) -> NNModule:
@@ -180,8 +133,80 @@ class ImageTrainer:
         classifier.dropout = dropout
         return classifier
 
+    def save_model(self) -> Path:
+        """Save the model in the specified directory"""
+        checkpoint = {
+            "dropout": self.arch.classifier.dropout,
+            "name": self.arch.name,
+            "class_to_idx": self.class_to_idx,
+            "model_state": self.arch.state_dict(),
+        }
+        timestamp = str(int(time()))
+        name: str = self.arch.name
+        # make sure the directory exists
+        self.save_dir.mkdir(exist_ok=True)
+        chkpnt_path: Path = Path(self.save_dir, f"checkpoint-{name}_{timestamp}.torch")
+        torch.save(checkpoint, str(chkpnt_path))
+        return chkpnt_path
+
+    def generate_dataloaders(self, data_dir: Path, batch_size: int = 32) -> None:
+        """Initialize `dataloaders` and `class_to_idx` instance attr"""
+        image_dirs: Dict[str, Path] = {
+            "train": Path(data_dir, "train").absolute(),
+            "validation": Path(data_dir, "valid").absolute(),
+            "test": Path(data_dir, "test").absolute(),
+        }
+        # validate image dirs
+        for name, p in image_dirs.items():
+            if not (p.exists() and p.is_dir()):
+                raise ImageTrainerError(
+                    f"Path {p} for {name} image directory is not a valid directory"
+                )
+
+        the_transforms: Dict[str, transforms.Compose] = {
+            "train": transforms.Compose(
+                [
+                    transforms.RandomResizedCrop(224),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.RandomRotation(45),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                ]
+            ),
+            # validation is same as test for now
+            "validation": transforms.Compose(
+                [
+                    transforms.Resize(255),
+                    transforms.CenterCrop(224),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                ]
+            ),
+            "test": transforms.Compose(
+                [
+                    transforms.Resize(255),
+                    transforms.CenterCrop(224),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                ]
+            ),
+        }
+
+        image_datasets: Dict[str, DatasetFolder] = {
+            name: ImageFolder(str(image_dirs[name]), transform=the_transforms[name])
+            for name in image_dirs.keys()
+        }
+        self.class_to_idx = image_datasets["train"].class_to_idx
+
+        self.dataloaders = {
+            name: DataLoader(image_datasets[name], batch_size=batch_size, shuffle=True)
+            for name in ["train", "validation", "test"]
+        }
+
     def train_and_validate(self):
-        optimizer: NNModule = self.optimizer_class(self.classifier.parameters(), lr=self.learning_rate)
+        optimizer: NNModule = self.optimizer_class(
+            self.classifier.parameters(), lr=self.learning_rate
+        )
         self.arch.to(self.device)
         for ep in keep_awake(range(self.epochs)):
             print(f"\nStarting epoch # {ep + 1} of {self.epochs}")
@@ -202,7 +227,7 @@ class ImageTrainer:
                 training_loss += loss.item()
                 loss.backward()
                 optimizer.step()
-            print(f"Total training loss: {training_loss}")
+            print(f"\nTotal training loss: {training_loss}")
 
             print(f"\nBeginning evaluation for epoch #{ep + 1}")
             print(f"Batch progress", end="...")
@@ -212,7 +237,9 @@ class ImageTrainer:
             validation_loss: float = 0.0
             with torch.no_grad():
 
-                for count, (images, labels) in enumerate(self.dataloaders["validation"]):
+                for count, (images, labels) in enumerate(
+                    self.dataloaders["validation"]
+                ):
                     images: torch.Tensor = images.to(self.device)
                     labels: torch.Tensor = labels.to(self.device)
 
@@ -223,14 +250,19 @@ class ImageTrainer:
                     validation_loss += loss.item()
                     ps: torch.Tensor = torch.exp(log_ps)
                     top_class: torch.Tensor = ps.topk(1, dim=1)[1]
-                    equals: torch.Tensor = torch.eq(top_class, labels.view(*top_class.shape))
+                    equals: torch.Tensor = torch.eq(
+                        top_class, labels.view(*top_class.shape)
+                    )
                     batch_acc: float = equals.type(torch.FloatTensor).mean()
                     accuracy += batch_acc
 
-                print(f"  Total validation loss: {validation_loss}\n"
-                      f"  Accuracy: {accuracy / len(self.dataloaders['validation'])}")
+                print(
+                    f"\n\tTotal validation loss: {validation_loss}"
+                    f"\n\tAccuracy: {accuracy / len(self.dataloaders['validation'])}"
+                )
 
     def test_model(self):
+        print("Starting evaluation on test data...")
         self.arch.to(self.device)
         self.arch.eval()
         accuracy: float = 0.0
@@ -249,16 +281,14 @@ class ImageTrainer:
                 batch_acc: float = equals.type(torch.FloatTensor).mean()
                 accuracy += batch_acc
 
-            print(f"Test Accuracy: {accuracy/len(self.dataloaders['test'])}")
+        print(f"\nTest Accuracy: {accuracy/len(self.dataloaders['test'])}")
 
 
 if __name__ == "__main__":
     parser = create_training_parser()
     kwargs = vars(parser.parse_args())
-    print(kwargs)
     img_trainer = ImageTrainer(**kwargs)
-    print(img_trainer.dataloaders)
-    print(img_trainer.arch)
-    print(img_trainer.device)
     img_trainer.train_and_validate()
     img_trainer.test_model()
+    chkpnt: Path = img_trainer.save_model()
+    print(f"Saved checkpoint to {chkpnt}")
