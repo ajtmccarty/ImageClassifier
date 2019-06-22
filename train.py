@@ -3,7 +3,7 @@ from typing import Dict, List
 
 from torch.nn import Module as NNModule
 from torch.utils.data import DataLoader
-from torchvision import transforms
+from torchvision import transforms, models as torch_models
 from torchvision.datasets import DatasetFolder, ImageFolder
 
 
@@ -14,7 +14,7 @@ class ImageTrainerError(Exception):
     pass
 
 
-class ImageTrainerInitErro(ImageTrainerError):
+class ImageTrainerInitError(ImageTrainerError):
     pass
 
 
@@ -23,7 +23,7 @@ class ImageTrainer:
             self,
             data_dir: Path,
             save_dir: Path,
-            arch: NNModule,
+            arch: str,
             learning_rate: float,
             hidden_units: List[int],
             epochs: int,
@@ -32,13 +32,16 @@ class ImageTrainer:
         # initial instance vars
         self.data_dir: Path = data_dir
         self.save_dir: Path = save_dir
-        self.arch: NNModule = arch
         self.learning_rate: float = learning_rate
         self.hidden_units: List[int] = hidden_units
         self.epochs: int = epochs
         self.gpu: bool = gpu
 
         self.dataloaders: Dict[str, DataLoader] = self.generate_dataloaders(self.data_dir)
+
+        # download the model last because it takes a long time we want to be sure the rest
+        # of the initialization was successful so users aren't waiting around for errors
+        self.arch: NNModule = self.initialize_pretrained_model(arch)
 
     @staticmethod
     def generate_dataloaders(data_dir: Path, batch_size: int = 32) -> Dict[str, DataLoader]:
@@ -51,7 +54,7 @@ class ImageTrainer:
         # validate image dirs
         for name, p in image_dirs.items():
             if not (p.exists() and p.is_dir()):
-                raise ImageTrainerError(f"Path {p} for {name} image directory is not a valid directory")
+                raise ImageTrainerInitError(f"Path {p} for {name} image directory is not a valid directory")
 
         the_transforms: Dict[str, transforms.Compose] = {
             "train": transforms.Compose([
@@ -86,6 +89,16 @@ class ImageTrainer:
             for name in ["train", "validation", "test"]
         }
 
+    @staticmethod
+    def initialize_pretrained_model(model_name: str) -> NNModule:
+        """Get the torchvision model by name, turn off gradient descent of its features, add a name instance var"""
+        model_class: NNModule = getattr(torch_models, model_name)
+        vision_model: NNModule = model_class(pretrained=True)
+        for p in vision_model.parameters():
+            p.requires_grad = False
+        vision_model.name = model_name
+        return vision_model
+
 
 if __name__ == "__main__":
     parser = create_training_parser()
@@ -93,3 +106,4 @@ if __name__ == "__main__":
     print(kwargs)
     img_trainer = ImageTrainer(**kwargs)
     print(img_trainer.dataloaders)
+    print(img_trainer.arch)

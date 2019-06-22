@@ -2,13 +2,12 @@ from argparse import ArgumentParser, ArgumentTypeError
 from pathlib import Path
 from typing import List
 
-from torch.nn import Module as NNModule
 import torchvision.models
 
 
 class ArgTypes:
     """Class to organize different types of arguments"""
-    
+
     @staticmethod
     def int_list(in_string: str) -> List[int]:
         """Verify in_string is comma-separated integers"""
@@ -18,10 +17,10 @@ class ArgTypes:
             raise ArgumentTypeError(f"{in_string} must be a comma-separated list of integers") from exc
 
     @staticmethod
-    def torchvision_model(in_string: str) -> NNModule:
+    def torchvision_model_name(in_string: str) -> str:
         """Verify that in_string is the name of a model in torchvision.models"""
         if hasattr(torchvision.models, in_string):
-            return getattr(torchvision.models, in_string)
+            return in_string
         raise ArgumentTypeError(f"{in_string} is not a torchvision model")
 
     @staticmethod
@@ -59,7 +58,7 @@ def create_training_parser():
     parser.add_argument(
         "-a",
         "--arch",
-        type=ArgTypes.torchvision_model,
+        type=ArgTypes.torchvision_model_name,
         default="vgg16",
         help="Name of pretrained neural net to use. Must be one of the models in PyTorch's torchvision.models("
              "https://pytorch.org/docs/0.4.0/torchvision/models.html), such as vgg16, densenet121, etc." 
