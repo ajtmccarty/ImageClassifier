@@ -38,14 +38,15 @@ class ImageTrainer:
         self.epochs: int = epochs
         self.gpu: bool = gpu
 
-        self.dataloaders: Dict[str, DataLoader] = {}
+        self.dataloaders: Dict[str, DataLoader] = self.generate_dataloaders(self.data_dir)
 
-    def generate_dataloaders(self, batch_size: int = 32):
+    @staticmethod
+    def generate_dataloaders(data_dir: Path, batch_size: int = 32) -> Dict[str, DataLoader]:
         """Initialize `dataloaders` instance attr"""
         image_dirs: Dict[str, Path] = {
-            "train": Path(self.data_dir, 'train').absolute(),
-            "validation": Path(self.data_dir, 'valid').absolute(),
-            "test":  Path(self.data_dir, 'test').absolute()
+            "train": Path(data_dir, 'train').absolute(),
+            "validation": Path(data_dir, 'valid').absolute(),
+            "test":  Path(data_dir, 'test').absolute()
         }
         # validate image dirs
         for name, p in image_dirs.items():
@@ -80,7 +81,7 @@ class ImageTrainer:
             for name in image_dirs.keys()
         }
 
-        self.dataloaders = {
+        return {
             name: DataLoader(image_datasets[name], batch_size=batch_size, shuffle=True)
             for name in ["train", "validation", "test"]
         }
@@ -91,3 +92,4 @@ if __name__ == "__main__":
     kwargs = vars(parser.parse_args())
     print(kwargs)
     img_trainer = ImageTrainer(**kwargs)
+    print(img_trainer.dataloaders)
