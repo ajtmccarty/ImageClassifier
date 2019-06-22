@@ -181,7 +181,7 @@ class ImageTrainer:
         return classifier
 
     def train_and_validate(self):
-        optimizer: NNModule = self.optimizer_class(self.arch.classifier.parameters(), lr=self.learning_rate)
+        optimizer: NNModule = self.optimizer_class(self.classifier.parameters(), lr=self.learning_rate)
         self.arch.to(self.device)
         for ep in keep_awake(range(self.epochs)):
             print(f"\nStarting epoch # {ep + 1} of {self.epochs}")
@@ -230,6 +230,27 @@ class ImageTrainer:
                 print(f"  Total validation loss: {validation_loss}\n"
                       f"  Accuracy: {accuracy / len(self.dataloaders['validation'])}")
 
+    def test_model(self):
+        self.arch.to(self.device)
+        self.arch.eval()
+        accuracy: float = 0.0
+        # turn off gradient descent for testing
+        with torch.no_grad():
+            for count, (images, labels) in enumerate(self.dataloaders["test"]):
+                images: torch.Tensor = images.to(self.device)
+                labels: torch.Tensor = labels.to(self.device)
+
+                if count % 10 == 0:
+                    print(count, end="...")
+                log_ps = self.arch.forward(images)
+                ps: torch.Tensor = torch.exp(log_ps)
+                top_class: torch.Tensor = ps.topk(1, dim=1)[1]
+                equals = torch.eq(top_class, labels.view(*top_class.shape))
+                batch_acc: float = equals.type(torch.FloatTensor).mean()
+                accuracy += batch_acc
+
+            print(f"Test Accuracy: {accuracy/len(self.dataloaders['test'])}")
+
 
 if __name__ == "__main__":
     parser = create_training_parser()
@@ -240,3 +261,4 @@ if __name__ == "__main__":
     print(img_trainer.arch)
     print(img_trainer.device)
     img_trainer.train_and_validate()
+    img_trainer.test_model()
