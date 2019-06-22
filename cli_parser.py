@@ -32,10 +32,18 @@ class ArgTypes:
 
     @staticmethod
     def valid_dir(in_string: str) -> Path:
-        """Verify that in string is a valid directory path and convert it to an absolute Path"""
+        """Verify that in_string is a valid directory path and convert it to an absolute Path"""
         p: Path = Path(in_string).absolute()
         if not (p.exists() and p.is_dir()):
-            raise ArgumentTypeError(f"{in_string} is not a valid path.")
+            raise ArgumentTypeError(f"{in_string} is not a valid directory path.")
+        return p
+
+    @staticmethod
+    def valid_file(in_string: str) -> Path:
+        """Verify that in_string is a valid file and convert it to an absolute Path"""
+        p: Path = Path(in_string).absolute()
+        if not (p.exists() and p.is_file()):
+            raise ArgumentTypeError(f"{in_string} is not a valid file path.")
         return p
 
     @staticmethod
@@ -92,6 +100,42 @@ def create_training_parser():
         type=int,
         default=10,
         help="Number of epochs to train the model for",
+    )
+    parser.add_argument(
+        "-g",
+        "--gpu",
+        action="store_true",
+        help="Whether to use a GPU. Will only work if PyTorch has access to a GPU",
+    )
+    return parser
+
+
+def create_prediction_parser():
+    parser = ArgumentParser(
+        prog="predict",
+        description="Predict an image's classification using a saved PyTorch model",
+    )
+    parser.add_argument(
+        "input",
+        type=ArgTypes.valid_file,
+        help="Path to an image file"
+    )
+    parser.add_argument(
+        "checkpoint",
+        type=ArgTypes.valid_file,
+        help="Path to a model checkpoint"
+    )
+    parser.add_argument(
+        "-top_k",
+        type=int,
+        default=5,
+        help="Return the top K best predictions"
+    )
+    parser.add_argument(
+        "-cn",
+        "--category_names",
+        type=ArgTypes.valid_file,
+        help="JSON file that maps category numbers of the image directories to human-readable names"
     )
     parser.add_argument(
         "-g",
