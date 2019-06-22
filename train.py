@@ -160,7 +160,7 @@ class ImageTrainer:
     def save_model(self) -> Path:
         """Save the model in the specified directory"""
         checkpoint = {
-            "dropout": self.arch.classifier.dropout,
+            "dropout": self.classifier.dropout,
             "name": self.arch.name,
             "class_to_idx": self.class_to_idx,
             "model_state": self.arch.state_dict(),
@@ -318,5 +318,3 @@ if __name__ == "__main__":
     img_trainer.test_model()
     chkpnt: Path = img_trainer.save_model()
     print(f"Saved checkpoint to {chkpnt}")
-    model = ImageTrainer.load_model(chkpnt)
-    print(model)
