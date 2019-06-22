@@ -2,7 +2,14 @@ from pathlib import Path
 from typing import Dict, List
 
 import torch
-from torch.nn import Module as NNModule
+from torch.nn import (
+    Dropout,
+    Linear,
+    LogSoftmax,
+    Module as NNModule,
+    ReLU,
+    Sequential
+)
 from torch.utils.data import DataLoader
 from torchvision import transforms, models as torch_models
 from torchvision.datasets import DatasetFolder, ImageFolder
@@ -53,6 +60,12 @@ class ImageTrainer:
         # download the model last because it takes a long time we want to be sure the rest
         # of the initialization was successful so users aren't waiting around for errors
         self.arch: NNModule = self.initialize_pretrained_model(arch)
+
+        classifier_in_nodes: int = self.get_classifier_input_size(self.arch)
+        classifier_out_nodes: int = self.get_num_cats(Path(self.data_dir, "test"))
+        layer_sizes: List[int] = [classifier_in_nodes] + self.hidden_units + [classifier_out_nodes]
+        self.classifier = self.build_classifier(layer_sizes)
+        self.arch.classifier = self.classifier
 
     @staticmethod
     def generate_dataloaders(data_dir: Path, batch_size: int = 32) -> Dict[str, DataLoader]:
@@ -113,7 +126,7 @@ class ImageTrainer:
     torch_models.resnet18()
 
     @staticmethod
-    def get_classifier_input_size(model: NNModule):
+    def get_classifier_input_size(model: NNModule) -> int:
         """The torchvision models either end with a classifier or an "fc" layer"""
         # if the classifier is just a single layer
         if hasattr(model, "fc"):
@@ -128,6 +141,31 @@ class ImageTrainer:
         raise ImageTrainerError(f"Cannot determine classifier input width. Model "
                                 f"must have a classifier with in_features attribute "
                                 f"or an 'fc' layer with an in_features attribute")
+
+    @staticmethod
+    def get_num_cats(image_dir: Path) -> int:
+        """Return the number of directories in one of the image directories, which will be the number
+        of categories"""
+        return len(list(image_dir.iterdir()))
+
+    @staticmethod
+    def build_classifier(layers: List[int], dropout: float = 0.3) -> Sequential:
+        args: List[NNModule] = []
+        for i in range(len(layers) - 2):
+            from_size = layers[i]
+            to_size = layers[i + 1]
+            args.extend([
+                Linear(from_size, to_size),
+                ReLU(),
+                Dropout(dropout)
+            ])
+        args.extend([
+            Linear(layers[-2], layers[-1]),
+            LogSoftmax(dim=1)
+        ])
+        classifier: Sequential = Sequential(*args)
+        classifier.dropout = dropout
+        return classifier
 
 
 if __name__ == "__main__":
