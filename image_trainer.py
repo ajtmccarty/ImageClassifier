@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 from time import time
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import torch
 from torch.optim import Adam, Optimizer
@@ -18,19 +18,9 @@ from torch.utils.data import DataLoader
 from torchvision import transforms, models as torch_models
 from torchvision.datasets import DatasetFolder, ImageFolder
 
+from exceptions import ImageTrainerError
+from utils import get_device, get_last_child_module
 from workspace_utils import keep_awake
-
-
-class ImageTrainerError(Exception):
-    pass
-
-
-class ImageTrainerInitError(ImageTrainerError):
-    pass
-
-
-def get_last_child_module(model: NNModule) -> Tuple[str, NNModule]:
-    return list(model.named_children())[-1]
 
 
 class ImageTrainer:
@@ -53,18 +43,7 @@ class ImageTrainer:
         self.optimizer_class: Optimizer = Adam
         self.criterion: NNModule = NLLLoss()
 
-        # TODO: this verification should probably be in the cli_parser
-        if gpu:
-            if torch.cuda.is_available():
-                self.gpu: bool = True
-                self.device: torch.device = torch.device("cuda")
-            else:
-                raise ImageTrainerInitError(
-                    f"No GPU available. Run without -g/--gpu argument"
-                )
-        else:
-            self.gpu = False
-            self.device = torch.device("cpu")
+        self.device = get_device(gpu)
 
         self.class_to_idx: Dict[str, int] = dict()
         self.dataloaders: Dict[str, DataLoader] = dict()
