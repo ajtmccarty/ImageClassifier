@@ -2,13 +2,15 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import torch
-from torch.nn import Dropout, Linear, LogSoftmax, Module as NNModule, ReLU, Sequential
+from torch.optim import Adam, Optimizer
+from torch.nn import Dropout, Linear, LogSoftmax, Module as NNModule, NLLLoss, ReLU, Sequential
 from torch.utils.data import DataLoader
 from torchvision import transforms, models as torch_models
 from torchvision.datasets import DatasetFolder, ImageFolder
 
 
 from cli_parser import create_training_parser
+from workspace_utils import keep_awake
 
 
 class ImageTrainerError(Exception):
@@ -40,6 +42,8 @@ class ImageTrainer:
         self.learning_rate: float = learning_rate
         self.hidden_units: List[int] = hidden_units
         self.epochs: int = epochs
+        self.optimizer_class: Optimizer = Adam
+        self.criterion: NNModule = NLLLoss()
 
         # TODO: this verification should probably be in the cli_parser
         if gpu:
@@ -64,7 +68,9 @@ class ImageTrainer:
 
         classifier_in_nodes: int = self.get_classifier_input_size(self.arch)
         classifier_out_nodes: int = self.get_num_cats(Path(self.data_dir, "test"))
-        layer_sizes: List[int] = [classifier_in_nodes] + self.hidden_units + [
+        layer_sizes: List[int] = [
+            classifier_in_nodes,
+            *self.hidden_units,
             classifier_out_nodes
         ]
         self.classifier = self.build_classifier(layer_sizes)
@@ -174,6 +180,56 @@ class ImageTrainer:
         classifier.dropout = dropout
         return classifier
 
+    def train_and_validate(self):
+        optimizer: NNModule = self.optimizer_class(self.arch.classifier.parameters(), lr=self.learning_rate)
+        self.arch.to(self.device)
+        for ep in keep_awake(range(self.epochs)):
+            print(f"\nStarting epoch # {ep + 1} of {self.epochs}")
+            print(f"Batch progress", end="...")
+            # set model for training
+            self.arch.train()
+            training_loss: float = 0.0
+
+            for count, (images, labels) in enumerate(self.dataloaders["train"]):
+                optimizer.zero_grad()
+                images: torch.Tensor = images.to(self.device)
+                labels: torch.Tensor = labels.to(self.device)
+
+                if count % 10 == 0:
+                    print(count, end="...")
+                log_ps: torch.Tensor = self.arch.forward(images)
+                loss: torch.Tensor = self.criterion(log_ps, labels)
+                training_loss += loss.item()
+                loss.backward()
+                optimizer.step()
+            print(f"Total training loss: {training_loss}")
+
+            print(f"\nBeginning evaluation for epoch #{ep + 1}")
+            print(f"Batch progress", end="...")
+            # set model for evaluation
+            self.arch.eval()
+            accuracy: float = 0.0
+            validation_loss: float = 0.0
+            with torch.no_grad():
+
+                for count, (images, labels) in enumerate(self.dataloaders["validation"]):
+                    images: torch.Tensor = images.to(self.device)
+                    labels: torch.Tensor = labels.to(self.device)
+
+                    if count % 10 == 0:
+                        print(count, end="...")
+                    log_ps: torch.Tensor = self.arch.forward(images)
+                    loss: torch.Tensor = self.criterion(log_ps, labels)
+                    validation_loss += loss.item()
+                    ps: torch.Tensor = torch.exp(log_ps)
+                    top_class: torch.Tensor = ps.topk(1, dim=1)[1]
+                    equals: torch.Tensor = torch.eq(top_class, labels.view(*top_class.shape))
+                    batch_acc: float = equals.type(torch.FloatTensor).mean()
+                    accuracy += batch_acc
+
+                print(f"  Total validation loss: {validation_loss}\n"
+                      f"  Accuracy: {accuracy / len(self.dataloaders['validation'])}")
+
 
 if __name__ == "__main__":
     parser = create_training_parser()
@@ -183,3 +239,4 @@ if __name__ == "__main__":
     print(img_trainer.dataloaders)
     print(img_trainer.arch)
     print(img_trainer.device)
+    img_trainer.train_and_validate()
