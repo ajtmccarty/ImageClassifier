@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import torch
 from torch.nn import (
@@ -24,6 +24,10 @@ class ImageTrainerError(Exception):
 
 class ImageTrainerInitError(ImageTrainerError):
     pass
+
+
+def get_last_child_module(model: NNModule) -> Tuple[str, NNModule]:
+    return list(model.named_children())[-1]
 
 
 class ImageTrainer:
@@ -65,7 +69,9 @@ class ImageTrainer:
         classifier_out_nodes: int = self.get_num_cats(Path(self.data_dir, "test"))
         layer_sizes: List[int] = [classifier_in_nodes] + self.hidden_units + [classifier_out_nodes]
         self.classifier = self.build_classifier(layer_sizes)
-        self.arch.classifier = self.classifier
+
+        last_layer_name: str = get_last_child_module(self.arch)[0]
+        setattr(self.arch, last_layer_name, self.classifier)
 
     @staticmethod
     def generate_dataloaders(data_dir: Path, batch_size: int = 32) -> Dict[str, DataLoader]:
@@ -123,19 +129,16 @@ class ImageTrainer:
         vision_model.name = model_name
         return vision_model
 
-    torch_models.resnet18()
-
     @staticmethod
     def get_classifier_input_size(model: NNModule) -> int:
         """The torchvision models either end with a classifier or an "fc" layer"""
         # if the classifier is just a single layer
-        if hasattr(model, "fc"):
-            return model.fc.in_features
-        if hasattr(model.classifier, "in_features"):
-            return model.classifier.in_features
-        for layer in model.classifier:
+        last_layer: NNModule = get_last_child_module(model)[1]
+        if hasattr(last_layer, "in_features"):
+            return last_layer.in_features
+        for module in last_layer:
             try:
-                return layer.in_features
+                return module.in_features
             except AttributeError:
                 pass
         raise ImageTrainerError(f"Cannot determine classifier input width. Model "
