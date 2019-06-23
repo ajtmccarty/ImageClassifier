@@ -296,7 +296,7 @@ class ImagePredictor:
         self.image_path: Path = input
         self.checkpoint_path: Path = checkpoint
         self.top_k: int = top_k
-        self.cat_name_map: Dict = parse_json_file(category_names)
+        self.cat_name_map: Dict = parse_json_file(category_names) if category_names else None
         self.device = get_device(gpu)
         self.model = load_model(self.checkpoint_path)
 
@@ -326,10 +326,10 @@ class ImagePredictor:
         image: Image = Image.open(image_path)
         with torch.no_grad():
             model.eval()
-            image_tensor: np.array = self.process_image(image)
-            image_tensor.to(self.device)
-        image_tensor: torch.Tensor = image_tensor.view(1, *image_tensor.shape)
+            image_tensor: torch.Tensor = self.process_image(image)
+        image_tensor = image_tensor.view(1, *image_tensor.shape)
         image_tensor = image_tensor.type(torch.FloatTensor)
+        image_tensor = image_tensor.to(self.device)
         log_ps: torch.Tensor = model.forward(image_tensor)
         ps: torch.Tensor = torch.exp(log_ps)
         probs, classes = ps.topk(topk, dim=1)
@@ -345,5 +345,7 @@ class ImagePredictor:
         if self.cat_name_map:
             classes = [self.cat_name_map[c] for c in classes]
         print(f"Prediction for top {self.top_k} classes")
+        total_p: float = sum(probs)
         for p, c in zip(probs, classes):
-            print(f"\t{c}: {p}")
+            percent: float = 100.0 * p / total_p
+            print(f"\t{c.title()}: {percent:.1f}%")
